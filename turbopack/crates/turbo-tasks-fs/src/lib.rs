@@ -44,6 +44,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use auto_hash_map::{AutoMap, AutoSet};
+use bincode::{Decode, Encode};
 use bitflags::bitflags;
 use dunce::simplified;
 use indexmap::IndexSet;
@@ -237,27 +238,32 @@ struct DiskFileSystemApplyContext {
     created_directories: FxHashSet<PathBuf>,
 }
 
-#[derive(Serialize, Deserialize, TraceRawVcs, ValueDebugFormat, NonLocalValue)]
+#[derive(Serialize, Deserialize, TraceRawVcs, ValueDebugFormat, NonLocalValue, Encode, Decode)]
 struct DiskFileSystemInner {
     pub name: RcStr,
     pub root: RcStr,
     #[turbo_tasks(debug_ignore, trace_ignore)]
     #[serde(skip)]
+    #[bincode(skip)]
     mutex_map: MutexMap<PathBuf>,
     #[turbo_tasks(debug_ignore, trace_ignore)]
     #[serde(skip)]
+    #[bincode(skip)]
     invalidator_map: InvalidatorMap,
     #[turbo_tasks(debug_ignore, trace_ignore)]
     #[serde(skip)]
+    #[bincode(skip)]
     dir_invalidator_map: InvalidatorMap,
     /// Lock that makes invalidation atomic. It will keep a write lock during
     /// watcher invalidation and a read lock during other operations.
     #[turbo_tasks(debug_ignore, trace_ignore)]
     #[serde(skip)]
+    #[bincode(skip)]
     invalidation_lock: RwLock<()>,
     /// Semaphore to limit the maximum number of concurrent file operations.
     #[turbo_tasks(debug_ignore, trace_ignore)]
     #[serde(skip, default = "create_semaphore")]
+    #[bincode(skip, default = "create_semaphore")]
     semaphore: tokio::sync::Semaphore,
 
     #[turbo_tasks(debug_ignore, trace_ignore)]
@@ -1660,13 +1666,26 @@ pub struct RealPathResult {
 
 /// Errors that can occur when resolving a path with symlinks.
 /// Many of these can be transient conditions that might happen when package managers are running.
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, NonLocalValue, TraceRawVcs)]
+#[derive(
+    Debug,
+    Clone,
+    Hash,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    NonLocalValue,
+    TraceRawVcs,
+    Encode,
+    Decode,
+)]
 pub enum RealPathResultError {
     TooManySymlinks,
     CycleDetected,
     Invalid,
     NotFound,
 }
+
 impl RealPathResultError {
     /// Formats the error message
     pub fn as_error_message(&self, orig: &FileSystemPath, result: &RealPathResult) -> String {
@@ -1829,7 +1848,7 @@ impl FileContent {
 }
 
 bitflags! {
-  #[derive(Default, Serialize, Deserialize, TraceRawVcs, NonLocalValue)]
+  #[derive(Default, Serialize, Deserialize, TraceRawVcs, NonLocalValue, Encode, Decode)]
   pub struct LinkType: u8 {
       const DIRECTORY = 0b00000001;
       const ABSOLUTE = 0b00000010;
@@ -2032,6 +2051,41 @@ mod mime_option_serde {
     }
 }
 
+mod mime_option_bincode {
+    use std::str::FromStr;
+
+    use bincode::{
+        Decode, Encode,
+        de::{BorrowDecoder, Decoder},
+        enc::Encoder,
+        error::{DecodeError, EncodeError},
+    };
+    use mime::Mime;
+
+    pub fn encode<E: Encoder>(mime: &Option<Mime>, encoder: &mut E) -> Result<(), EncodeError> {
+        let mime_str: Option<&str> = mime.as_ref().map(AsRef::as_ref);
+        Encode::encode(&mime_str, encoder)
+    }
+
+    pub fn decode<Context, D: Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Option<Mime>, DecodeError> {
+        if let Some(mime_str) = <Option<String> as Decode<Context>>::decode(decoder)? {
+            Ok(Some(
+                Mime::from_str(&mime_str).map_err(|e| DecodeError::OtherString(e.to_string()))?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn borrow_decode<'de, Context, D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Option<Mime>, DecodeError> {
+        decode(decoder)
+    }
+}
+
 #[turbo_tasks::value(shared)]
 #[derive(Debug, Clone, Default)]
 pub struct FileMeta {
@@ -2039,6 +2093,7 @@ pub struct FileMeta {
     // len: u64,
     permissions: Permissions,
     #[serde(with = "mime_option_serde")]
+    #[bincode(with = "mime_option_bincode")]
     #[turbo_tasks(trace_ignore)]
     content_type: Option<Mime>,
 }
@@ -2296,7 +2351,19 @@ pub enum FileLinesContent {
     NotFound,
 }
 
-#[derive(Hash, Clone, Debug, PartialEq, Eq, TraceRawVcs, Serialize, Deserialize, NonLocalValue)]
+#[derive(
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    TraceRawVcs,
+    Serialize,
+    Deserialize,
+    NonLocalValue,
+    Encode,
+    Decode,
+)]
 pub enum RawDirectoryEntry {
     File,
     Directory,
@@ -2305,7 +2372,19 @@ pub enum RawDirectoryEntry {
     Other,
 }
 
-#[derive(Hash, Clone, Debug, PartialEq, Eq, TraceRawVcs, Serialize, Deserialize, NonLocalValue)]
+#[derive(
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    TraceRawVcs,
+    Serialize,
+    Deserialize,
+    NonLocalValue,
+    Encode,
+    Decode,
+)]
 pub enum DirectoryEntry {
     File(FileSystemPath),
     Directory(FileSystemPath),

@@ -41,6 +41,7 @@
 #![feature(async_fn_traits)]
 
 pub mod backend;
+pub mod bincode;
 mod capture_future;
 mod collectibles;
 mod completion;
