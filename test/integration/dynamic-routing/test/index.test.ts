@@ -695,10 +695,12 @@ function runTests({ dev }) {
     let browser
     try {
       browser = await webdriver(appPort, '/')
-      await browser.elementByCss('#view-post-1-comment-1').click()
-      await browser.waitForElementByCss('span')
 
-      const text = await browser.elementByCss('span').text()
+      await browser.elementByCss('#view-post-1-comment-1').click()
+      const text = await browser
+        .elementByCss('[data-testid="gip-query"]')
+        .text()
+
       expect(text).toMatch(/gip.*post-1/i)
     } finally {
       if (browser) await browser.close()
